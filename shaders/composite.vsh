@@ -1,10 +1,22 @@
 #version 430 compatibility
 
-varying vec2 fTexCoords;
+// Settings
+#include "/settings/settings.glsl"
 
+// Libraries
+
+// Outs
+out vec2 fCoordTexture;
+
+// Uniforms
+
+// Constants
+
+// Functions
+
+// Program
 void main() {
-    gl_Position = ftransform();
-    fTexCoords = gl_MultiTexCoord0.st;
-}
+	fCoordTexture = (gl_TextureMatrix[0] * gl_MultiTexCoord0).xy;
 
-// vim: filetype=glsl
+    gl_Position = ftransform();
+}

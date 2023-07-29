@@ -23,6 +23,7 @@ if [[ "${1}" == "-h" || "${1}" == "--help" ]]; then
 elif [[ "${1}" == "install" ]]; then
     SHADER_NAME="NeShader"
     PATH_OUTPUT="${HOME}/.minecraft/shaderpacks/${SHADER_NAME}.zip"
+    rm -rf "${PATH_OUTPUT}"
     zip -r "${PATH_OUTPUT}" "${PATH_PROJECT}/shaders"
 
 elif [[ "${1}" == "new" && -n "${2}" ]]; then
