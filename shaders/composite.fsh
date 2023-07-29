@@ -1,12 +1,11 @@
 #version 430 compatibility
 
+#include "/settings/settings.glsl"
 #include "/lib/distort.glsl"
 
-#define SHADOW_SAMPLES 2
-const int shadowSamplesPerSize = 2 * SHADOW_SAMPLES + 1;
+const int shadowSamplesPerSize = 2 * shadowPcfSamples + 1;
 const int shadowSamplesTotal = shadowSamplesPerSize * shadowSamplesPerSize;
 
-const int shadowMapResolution = 2048;
 const int noiseTextureResolution = 128;
 
 varying vec2 fTexCoords;
@@ -26,7 +25,7 @@ uniform mat4 shadowModelView;
 uniform mat4 shadowProjection;
 
 float shadowSample(in sampler2D map, in vec3 coords) {
-    return step(coords.z - 0.001, texture2D(map, coords.xy).r);
+    return step(coords.z - shadowBias, texture2D(map, coords.xy).r);
 }
 
 vec3 shadowTransparent(in vec3 coords) {
@@ -37,8 +36,49 @@ vec3 shadowTransparent(in vec3 coords) {
     return mix(transmitted * transparent, vec3(1.0), opaque);
 }
 
+float shadowSpread(in vec3 coords) {
+    float distance = 0;
+    for (int x = -shadowPcfSamples; x <= shadowPcfSamples; x++) {
+        for (int y = -shadowPcfSamples; y <= shadowPcfSamples; y++) {
+            vec2 offset = vec2(x, y) * shadowSmoothness / shadowPcfSamples * 0.002;
+            vec3 coordsSample = vec3(coords.xy + offset, coords.z);
+            float distanceSample =
+                texture2D(shadowtex0, coordsSample.xy).r
+                + texture2D(shadowtex1, coordsSample.xy).r;
+            distance += distanceSample;
+        }
+    }
+
+    distance /= shadowSamplesTotal * 2;
+    distance -= texture2D(shadowtex0, coords.xy).r;
+
+    return max(0, min(4, abs(distance) * 500));
+}
+
+vec3 shadowFilter(in vec3 coords) {
+    float randomAngle = texture2D(noisetex, fTexCoords * 20.0).r * 100.0;
+    float cos = cos(randomAngle);
+    float sin = sin(randomAngle);
+    mat2 rotation = mat2(cos, -sin, sin, cos) / shadowMapResolution;
+
+    float spread = shadowSpread(coords);
+
+    vec3 shadow = vec3(0.0);
+    for (int x = -shadowPcfSamples; x <= shadowPcfSamples; x++) {
+        for (int y = -shadowPcfSamples; y <= shadowPcfSamples; y++) {
+            vec2 offset = rotation * vec2(x, y) * shadowSmoothness * spread / shadowPcfSamples;
+            vec3 coordsSample = vec3(coords.xy + offset, coords.z);
+            shadow += shadowTransparent(coordsSample);
+        }
+    }
+    shadow /= shadowSamplesTotal;
+
+    return shadow;
+}
+
 vec3 shadow(float depth) {
     if (depth == 1) {
+        // Sky
         return vec3(1.0);
     }
 
@@ -52,30 +92,20 @@ vec3 shadow(float depth) {
 
     vec3 sampleCoords = shadowSpace.xyz * 0.5 + 0.5;
 
-    vec3 shadow = vec3(0.0);
-    float randomAngle = texture2D(noisetex, fTexCoords * 20.0).r * 100.0;
-    float cos = cos(randomAngle);
-    float sin = sin(randomAngle);
-    mat2 rotation = mat2(cos, -sin, sin, cos) / shadowMapResolution;
-    for (int x = -SHADOW_SAMPLES; x <= SHADOW_SAMPLES; x++) {
-        for (int y = -SHADOW_SAMPLES; y <= SHADOW_SAMPLES; y++) {
-            vec2 offset = rotation * vec2(x, y);
-            vec3 coords = vec3(sampleCoords.xy + offset, sampleCoords.z);
-            shadow += shadowTransparent(coords);
-        }
-    }
-    shadow /= shadowSamplesTotal;
-
-    return shadow;
+    return shadowFilter(sampleCoords);
 }
 
 void main() {
     vec3 albedo = texture2D(colortex0, fTexCoords).rgb;
     float depth = texture2D(depthtex0, fTexCoords).r;
-    vec3 shadow = min(shadow(depth) + 0.4, 1.0);
+    vec3 shadow = shadow(depth);
 
     /* DRAWBUFFERS:0 */
-    gl_FragData[0] = vec4(albedo * shadow, 1.0);
+    gl_FragData[0] = vec4(
+        albedo
+            * min(shadow + 0.2, 1.0),
+        1.0
+    );
 }
 
 // vim: filetype=glsl
